@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    container_name: finder_db
+    restart: always
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: ""      # You have an empty password
+      POSTGRES_DB: finder
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+  app:
+    build: .
+    container_name: finder_app
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://root@db:5432/finder
+      ASYNC_DATABASE_URL: postgresql+asyncpg://root@db:5432/finder
+    volumes:
+      - .:/app
+
+volumes:
+  db_data:
