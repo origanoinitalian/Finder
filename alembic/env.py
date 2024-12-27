@@ -13,7 +13,7 @@ from alembic import context
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Import your Base from your project
-from app.db import Base, DATABASE_URL  # Ensure DATABASE_URL is imported
+from app.db import Base  # Removed DATABASE_URL import
 
 # this is the Alembic Config object, which provides access to the values within the .ini file in use.
 config = context.config
@@ -21,7 +21,13 @@ config = context.config
 # Interpret the config file for Python logging.
 fileConfig(config.config_file_name)
 
-# Set the SQLAlchemy URL from your database configuration
+# Retrieve DATABASE_URL from environment variables
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set.")
+
+# Set the SQLAlchemy URL from environment variable
 config.set_main_option('sqlalchemy.url', DATABASE_URL)
 
 # Add your model's MetaData object for 'autogenerate' support

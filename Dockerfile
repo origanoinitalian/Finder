@@ -12,6 +12,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements.txt into the container
@@ -23,6 +24,9 @@ RUN pip install -r requirements.txt
 
 # Copy the entire project into the container (including entrypoint.sh)
 COPY . .
+
+# Set PYTHONPATH to /app to recognize the 'app' package
+ENV PYTHONPATH=/app
 
 # Ensure entrypoint.sh has executable permissions inside the container
 RUN chmod +x /app/entrypoint.sh
