@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Environment variables
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+
+# Docker
+docker-compose.override.yml
+
+# Logs and outputs
+*.log
+mainout.txt
+
+# Local data
+data_source/
+
+# Alembic (if you want to exclude auto-generated files)
+#alembic.ini  # Only exclude if it contains secrets (otherwise keep)
+
+# System files
+.DS_Store

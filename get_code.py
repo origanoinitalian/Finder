@@ -34,6 +34,6 @@ def list_files_and_contents(root_dir, output_file):
 
 
 if __name__ == '__main__':
-    root_directory = '/Users/alismac/Desktop/University/master/Data Mining and applications/heartbeat/Finder'
+    root_directory = '/home/avishan/Documents/project'
     output_filename = 'mainout.txt'
     list_files_and_contents(root_directory, output_filename)

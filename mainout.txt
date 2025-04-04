@@ -1,310 +1,12 @@
-***alembic.ini
-# A generic, single database configuration.
-
-[alembic]
-# path to migration scripts
-# Use forward slashes (/) also on windows to provide an os agnostic path
-script_location = alembic
-
-# template used to generate migration file names; The default value is %%(rev)s_%%(slug)s
-# Uncomment the line below if you want the files to be prepended with date and time
-# see https://alembic.sqlalchemy.org/en/latest/tutorial.html#editing-the-ini-file
-# for all available tokens
-# file_template = %%(year)d_%%(month).2d_%%(day).2d_%%(hour).2d%%(minute).2d-%%(rev)s_%%(slug)s
-
-# sys.path path, will be prepended to sys.path if present.
-# defaults to the current working directory.
-prepend_sys_path = .
-
-# timezone to use when rendering the date within the migration file
-# as well as the filename.
-# If specified, requires the python>=3.9 or backports.zoneinfo library.
-# Any required deps can installed by adding `alembic[tz]` to the pip requirements
-# string value is passed to ZoneInfo()
-# leave blank for localtime
-# timezone =
-
-# max length of characters to apply to the "slug" field
-# truncate_slug_length = 40
-
-# set to 'true' to run the environment during
-# the 'revision' command, regardless of autogenerate
-# revision_environment = false
-
-# set to 'true' to allow .pyc and .pyo files without
-# a source .py file to be detected as revisions in the
-# versions/ directory
-# sourceless = false
-
-# version location specification; This defaults
-# to alembic/versions.  When using multiple version
-# directories, initial revisions must be specified with --version-path.
-# The path separator used here should be the separator specified by "version_path_separator" below.
-# version_locations = %(here)s/bar:%(here)s/bat:alembic/versions
-
-# version path separator; As mentioned above, this is the character used to split
-# version_locations. The default within new alembic.ini files is "os", which uses os.pathsep.
-# If this key is omitted entirely, it falls back to the legacy behavior of splitting on spaces and/or commas.
-# Valid values for version_path_separator are:
-#
-# version_path_separator = :
-# version_path_separator = ;
-# version_path_separator = space
-# version_path_separator = newline
-version_path_separator = os  # Use os.pathsep. Default configuration used for new projects.
-
-# set to 'true' to search source files recursively
-# in each "version_locations" directory
-# new in Alembic version 1.10
-# recursive_version_locations = false
-
-# the output encoding used when revision files
-# are written from script.py.mako
-# output_encoding = utf-8
-
-sqlalchemy.url = postgresql://root@localhost:5432/finder
-
-
-[post_write_hooks]
-# post_write_hooks defines scripts or Python functions that are run
-# on newly generated revision scripts.  See the documentation for further
-# detail and examples
-
-# format using "black" - use the console_scripts runner, against the "black" entrypoint
-# hooks = black
-# black.type = console_scripts
-# black.entrypoint = black
-# black.options = -l 79 REVISION_SCRIPT_FILENAME
-
-# lint with attempts to fix using "ruff" - use the exec runner, execute a binary
-# hooks = ruff
-# ruff.type = exec
-# ruff.executable = %(here)s/.venv/bin/ruff
-# ruff.options = --fix REVISION_SCRIPT_FILENAME
-
-# Logging configuration
-[loggers]
-keys = root,sqlalchemy,alembic
-
-[handlers]
-keys = console
-
-[formatters]
-keys = generic
-
-[logger_root]
-level = WARNING
-handlers = console
-qualname =
-
-[logger_sqlalchemy]
-level = WARNING
-handlers =
-qualname = sqlalchemy.engine
-
-[logger_alembic]
-level = INFO
-handlers =
-qualname = alembic
-
-[handler_console]
-class = StreamHandler
-args = (sys.stderr,)
-level = NOTSET
-formatter = generic
-
-[formatter_generic]
-format = %(levelname)-5.5s [%(name)s] %(message)s
-datefmt = %H:%M:%S
-
-***Dockerfile
-# Use the official Python 3.10 slim image as the base
-FROM python:3.10-slim
-
-# Environment variables to prevent Python from buffering output and creating .pyc files
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Set the working directory inside the container
-WORKDIR /app
-
-# Install system dependencies needed for building and PostgreSQL interaction
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements.txt into the container
-COPY requirements.txt .
-
-# Upgrade pip and install Python dependencies
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
-
-# Copy the entire project into the container (including entrypoint.sh)
-COPY . .
-
-# Ensure entrypoint.sh has executable permissions inside the container
-RUN chmod +x /app/entrypoint.sh
-
-# Entrypoint will run the script that waits for the DB, runs migrations, populates the DB, and starts the server
-ENTRYPOINT ["/app/entrypoint.sh"]
-***.env
-DATABASE_URL=postgresql://root@localhost:5432/finder
-ASYNC_DATABASE_URL=postgresql+asyncpg://root@localhost:5432/finder
-
-
-***docker-compose.yml
-version: '3.8'
-
-services:
-  db:
-    image: postgres:13
-    container_name: finder_db
-    restart: always
-    environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: ""      # You have an empty password
-      POSTGRES_DB: finder
-      POSTGRES_HOST_AUTH_METHOD: trust
-    ports:
-      - "5432:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-  app:
-    build: .
-    container_name: finder_app
-    restart: always
-    depends_on:
-      - db
-    ports:
-      - "8000:8000"
-    environment:
-      DATABASE_URL: postgresql://root@db:5432/finder
-      ASYNC_DATABASE_URL: postgresql+asyncpg://root@db:5432/finder
-    volumes:
-      - .:/app
-
-volumes:
-  db_data:
-***main.py
-from fastapi import FastAPI
-from fastapi import FastAPI
-from app.routers import suggestions
-
-app = FastAPI(
-    title="Room Finder API",
-    description="""
-    # Room Finder API
-
-    This API allows users to find and reserve rooms based on their preferences. Users can input their budget, desired check-in and check-out dates, preferred neighborhood, and the importance of each preference. The API will then suggest rooms sorted based on how well they match the user's preferences.
-
-    ## Endpoints
-
-    - **POST /suggestions/**: Get room suggestions based on user preferences.
-    - **POST /suggestions/reserve/{listing_id}**: Reserve a room by listing ID.
-    """,
-    version="1.0.0",
-    contact={
-        "name": "ali",
-        "email": "khavanin.a2015@gmail.com",
-    },
-)
-
-# Include the suggestions router
-app.include_router(suggestions.router)
-
-
-
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-
-@app.get("/hello/{name}")
-async def say_hello(name: str):
-    return {"message": f"Hello {name}"}
-
-***test_main.http
-# Test your FastAPI endpoints
-
-GET http://127.0.0.1:8000/
-Accept: application/json
-
-###
-
-GET http://127.0.0.1:8000/hello/User
-Accept: application/json
-
-###
-
-***entrypoint.sh
-#!/bin/bash
-# Exit immediately if a command exits with a non-zero status
-
-set -e
-
-# Function to check if the database is ready
-function wait_for_db() {
-  echo "Waiting for PostgreSQL to be ready..."
-  until psql "$DATABASE_URL" -c '\q' 2>/dev/null; do
-    >&2 echo "PostgreSQL is unavailable - sleeping"
-    sleep 1
-  done
-  echo "PostgreSQL is up - continuing..."
-}
-
-# Run the function
-wait_for_db
-
-# Run Alembic migrations
-echo "Running Alembic migrations..."
-alembic upgrade head
-
-# Function to check if a table is empty
-function is_table_empty() {
-  TABLE_NAME=$1
-  RESULT=$(psql "$DATABASE_URL" -t -c "SELECT COUNT(*) FROM $TABLE_NAME;")
-  if [ "$RESULT" -eq "0" ]; then
-    return 0  # Empty
-  else
-    return 1  # Not empty
-  fi
-}
-
-# Populate the neighbourhood table if empty
-if is_table_empty "neighborhood"; then
-  echo "Populating 'neighborhood' table..."
-  python data_source/populate_neighbourhood.py
-else
-  echo "'neighborhood' table already populated."
-fi
-
-# Populate the listings and room tables if empty
-if is_table_empty "listings"; then
-  echo "Populating 'listings' and 'room' tables..."
-  python data_source/populate_listing_and_room.py
-else
-  echo "'listings' table already populated."
-fi
-
-# Start the FastAPI app with Uvicorn
-echo "Starting FastAPI server..."
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-***data_source/populate_listing_and_room.py
+***pplisting_room.py
 import csv
 import os
-from sqlalchemy.exc import SQLAlchemyError
+import psycopg2
 
-# Adjust these imports based on your actual project structure:
-from app.db import SessionLocal
-from models.listing import Listing
-from models.room import Room
 
-def populate_listings_and_rooms(csv_file_path: str):
+def populate_listings_and_rooms(csv_file_path: str, db_name: str, db_user: str, db_password: str):
     """
-    Populate the 'listings' and 'room' tables from the CSV file.
+    Populate the 'listings' and 'room' tables from the CSV file using pure SQL with psycopg2.
 
     Mapping (according to your specification):
     - 'listings' table:
@@ -319,8 +21,11 @@ def populate_listings_and_rooms(csv_file_path: str):
         room_type -> room_type
     """
 
-    db = SessionLocal()
     try:
+        # Connect to the PostgreSQL database
+        conn = psycopg2.connect(dbname=db_name, user=db_user, password=db_password)
+        cur = conn.cursor()
+
         with open(csv_file_path, newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
             rows_processed = 0
@@ -343,712 +48,162 @@ def populate_listings_and_rooms(csv_file_path: str):
                     print(f"Skipping row {rows_processed}: Unable to parse required fields ({e})")
                     continue
 
-                # 1) Create or Skip Listing
-                existing_listing = db.query(Listing).filter_by(airbnb_id=airbnb_id).first()
-                if not existing_listing:
-                    listing = Listing(
-                        airbnb_id=airbnb_id,
-                        airbnb_name=airbnb_name,
-                        price=price,
-                        host_id=host_id,
-                        neigh_num=neigh_num
-                    )
-                    db.add(listing)
-                    new_listings += 1
+                # 1) Create or Skip Listing (using INSERT ... SELECT ... EXISTS)
+                cur.execute("""
+                    INSERT INTO listings (airbnb_id, airbnb_name, price, host_id, neigh_num)
+                    SELECT %s, %s, %s, %s, %s
+                    WHERE NOT EXISTS (SELECT 1 FROM listings WHERE airbnb_id = %s);
+                """, (airbnb_id, airbnb_name, price, host_id, neigh_num, airbnb_id))
+                new_listings += cur.rowcount
 
-                # 2) Create or Skip Room
-                existing_room = db.query(Room).filter_by(airbnb_id=airbnb_id).first()
-                if not existing_room:
-                    room = Room(
-                        airbnb_id=airbnb_id,
-                        host_id=host_id,
-                        room_type=room_type
-                    )
-                    db.add(room)
-                    new_rooms += 1
+                # 2) Create or Skip Room (using INSERT ... SELECT ... EXISTS)
+                cur.execute("""
+                    INSERT INTO room (airbnb_id, host_id, room_type)
+                    SELECT %s, %s, %s
+                    WHERE NOT EXISTS (SELECT 1 FROM room WHERE airbnb_id = %s);
+                """, (airbnb_id, host_id, room_type, airbnb_id))
+                new_rooms += cur.rowcount
 
-            # Commit all changes after processing the CSV
-            db.commit()
-            print(f"Processed {rows_processed} rows.")
-            print(f"New listings added: {new_listings}")
-            print(f"New rooms added: {new_rooms}")
+        # Commit all changes after processing the CSV
+        conn.commit()
+        print(f"Processed {rows_processed} rows.")
+        print(f"New listings added: {new_listings}")
+        print(f"New rooms added: {new_rooms}")
 
     except FileNotFoundError:
         print(f"CSV file not found: {csv_file_path}")
-    except SQLAlchemyError as e:
-        db.rollback()
-        print(f"Database error: {e}")
-    except Exception as e:
-        db.rollback()
-        print(f"An unexpected error occurred: {e}")
+    except (psycopg2.Error, Exception) as e:
+        print(f"An error occurred: {e}")
+        conn.rollback() if conn else None  # Rollback if connection was established
     finally:
-        db.close()
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
 
 if __name__ == "__main__":
 
-    csv_file_path = "finallisting.csv"
+    csv_file_path = "/home/avishan/Documents/project/finallisting.csv"
+    db_name = "finder"
+    db_user = "avishan"
+    db_password = "shittypeople"  # Replace with your actual password
 
     if not os.path.isfile(csv_file_path):
         print(f"CSV file does not exist: {csv_file_path}")
     else:
-        populate_listings_and_rooms(csv_file_path)
-***data_source/__init__.py
+        populate_listings_and_rooms(csv_file_path, db_name, db_user, db_password)
+***tables.sql
+CREATE TABLE neighborhood (
+    neigh_num INTEGER PRIMARY KEY,
+    neigh_name VARCHAR(255),
+    rank INTEGER
+);
 
-***data_source/populate_neighbourhood.py
-# populate_neighbourhood.py
+CREATE TABLE listings (
+    airbnb_id INTEGER PRIMARY KEY,
+    airbnb_name VARCHAR(255),
+    price INTEGER,
+    host_id INTEGER,
+    neigh_num INTEGER,
+    FOREIGN KEY (neigh_num) REFERENCES neighborhood(neigh_num)
+);
 
+
+CREATE TABLE room (
+    host_id INTEGER,
+    room_type VARCHAR(255),
+    airbnb_id INTEGER PRIMARY KEY,
+    availibility BOOLEAN,
+    check_in DATE,
+    check_out DATE,
+    FOREIGN KEY (airbnb_id) REFERENCES listings(airbnb_id)
+);
+
+***ppneigh.py
 import csv
 import os
-from tqdm import tqdm
-from app.db import SessionLocal
-from models.neighborhood import Neighborhood
+import psycopg2
 
-def populate_neighbourhoods(csv_file_path: str):
-    """
-    Populate the neighbourhood table with data from a CSV file.
 
-    :param csv_file_path: Path to the CSV file containing neighbourhood data.
+def populate_neighbourhoods(csv_file_path: str, dbname: str, user: str, password: str):
     """
-    # Create a new database session
-    db = SessionLocal()
+    Populate the neighbourhood table with data from a CSV file using psycopg2.
+
+    Args:
+        csv_file_path: Path to the CSV file containing neighbourhood data.
+        dbname: Name of the database to connect to.
+        user: Username for database access.
+        password: Password for database access.
+    """
+
     try:
-        # First, count the total number of rows for the progress bar
-        with open(csv_file_path, newline='', encoding='utf-8') as csvfile:
-            total_rows = sum(1 for row in csvfile) - 1  # Subtract 1 for header
-            csvfile.seek(0)  # Reset file pointer to the beginning
+        # Connect to the PostgreSQL database
+        conn = psycopg2.connect(dbname=dbname, user=user, password=password)
+        cur = conn.cursor()
 
+        # Open the CSV file
+        with open(csv_file_path, newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
             entries_added = 0
             entries_skipped = 0
 
-            # Initialize tqdm progress bar
-            with tqdm(total=total_rows, desc="Populating Neighbourhoods", unit="row") as pbar:
-                for row in reader:
-                    try:
-                        neigh_num = int(row['neigh_num'])
-                        neigh_name = row['neighbourhood'].strip()
-                        rank = int(row['rank'])
+            # Process each row in the CSV file
+            for row in reader:
+                try:
+                    neigh_num = int(row['neigh_num'])
+                    neigh_name = row['neighbourhood'].strip()
+                    rank = int(row['rank'])
 
-                        # Check if the neighbourhood already exists
-                        existing = db.query(Neighborhood).filter(Neighborhood.neigh_num == neigh_num).first()
-                        if existing:
-                            print(f"Neighbourhood with neigh_num {neigh_num} already exists. Skipping.")
-                            entries_skipped += 1
-                            pbar.update(1)
-                            continue
+                    # Check if the neighbourhood already exists
+                    cur.execute("SELECT * FROM Neighborhood WHERE neigh_num = %s", (neigh_num,))
+                    existing = cur.fetchone()
 
-                        # Create a new Neighbourhood instance
-                        neighbourhood = Neighborhood(
-                            neigh_num=neigh_num,
-                            neigh_name=neigh_name,
-                            rank=rank
-                        )
-
-                        # Add to the session
-                        db.add(neighbourhood)
-                        entries_added += 1
-
-                    except (ValueError, KeyError) as e:
-                        print(f"Error processing row {row}: {e}")
+                    if existing:
+                        print(f"Neighbourhood with neigh_num {neigh_num} already exists. Skipping.")
                         entries_skipped += 1
                         continue
 
-                    pbar.update(1)  # Update the progress bar for each processed row
+                    # Insert new neighbourhood
+                    sql = """
+                        INSERT INTO Neighborhood (neigh_num, neigh_name, rank)
+                        VALUES (%s, %s, %s)
+                    """
+                    cur.execute(sql, (neigh_num, neigh_name, rank))
 
-        # Commit the session to persist data
-        db.commit()
+                    entries_added += 1
+
+                except (ValueError, KeyError) as e:
+                    print(f"Error processing row {row}: {e}")
+                    entries_skipped += 1
+                    continue
+
+        # Commit the changes
+        conn.commit()
         print(f"\nPopulation complete: {entries_added} entries added, {entries_skipped} entries skipped.")
 
     except FileNotFoundError:
         print(f"CSV file not found at {csv_file_path}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        db.rollback()
+        conn.rollback() if conn else None  # Rollback if connection was established
     finally:
-        db.close()
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 
 if __name__ == "__main__":
-    # Define the path to the CSV file
-    csv_file_path ='neighranked.csv'
+    # Define file path, database details (replace with yours)
+    csv_file_path = '/home/avishan/Documents/project/neighranked.csv'
+    dbname = 'finder'
+    user = 'avishan'
+    password = 'your_password'  # Replace with your actual password
 
-    # Check if the file exists
+    # Check if CSV file exists
     if not os.path.exists(csv_file_path):
         print(f"CSV file not found at {csv_file_path}")
     else:
-        populate_neighbourhoods(csv_file_path)
-***app/db.py
-# app/db.py
+        populate_neighbourhoods(csv_file_path, dbname, user, password)
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker as async_sessionmaker
-from decouple import config
-from typing import Generator
-
-# Import Base after defining models to avoid circular imports
-from models.base import Base
-
-# Load environment variables
-DATABASE_URL = config("DATABASE_URL")
-ASYNC_DATABASE_URL = config("ASYNC_DATABASE_URL")
-
-# Synchronous Engine
-engine = create_engine(
-    DATABASE_URL,
-    echo=True,
-)
-
-# Synchronous Session Local
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Asynchronous Engine
-async_engine = create_async_engine(
-    ASYNC_DATABASE_URL,
-    echo=True,
-)
-
-# Asynchronous Session Local
-AsyncSessionLocal = async_sessionmaker(
-    async_engine,
-    expire_on_commit=False,
-    class_=AsyncSession
-)
-
-# Dependency for synchronous DB session
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# Dependency for asynchronous DB session
-async def get_async_db() -> AsyncSession:
-    async with AsyncSessionLocal() as session:
-        yield session
-***app/__init__.py
-
-***app/schemas.py
-# app/schemas.py
-
-from pydantic import BaseModel, Field, validator
-from typing import Tuple, List, Optional
-from datetime import date, datetime
-
-
-class PreferenceInput(BaseModel):
-    """
-    Schema for user preferences input.
-    """
-    budget: Tuple[int, int] = Field(..., example=[250, 8])
-    check_in: Tuple[date, int] = Field(..., example=["2024-05-01", 7])
-    check_out: Tuple[date, int] = Field(..., example=["2024-05-10", 7])
-    neigh_name: Tuple[str, int] = Field(..., example=["Downtown", 10])
-
-    @validator('budget')
-    def budget_non_negative(cls, v):
-        value, importance = v
-        if value < 0:
-            raise ValueError('Budget cannot be negative')
-        if not 1 <= importance <= 10:
-            raise ValueError('Budget importance coefficient must be between 1 and 10')
-        return v
-
-    @validator('check_in')
-    def check_in_not_past(cls, v):
-        check_in_date, importance = v
-        today = date.today()
-        if check_in_date < today:
-            raise ValueError('Check-in date cannot be in the past')
-        if not 1 <= importance <= 10:
-            raise ValueError('Check-in importance coefficient must be between 1 and 10')
-        return v
-
-    @validator('check_out')
-    def check_out_after_check_in(cls, v, values):
-        check_out_date, importance = v
-        check_in_date = values.get('check_in', (None, None))[0]
-        if check_in_date and check_out_date < check_in_date:
-            raise ValueError('Check-out date cannot be before check-in date')
-        if not 1 <= importance <= 10:
-            raise ValueError('Check-out importance coefficient must be between 1 and 10')
-        return v
-
-    @validator('neigh_name')
-    def neigh_name_not_empty(cls, v):
-        neigh_name, importance = v
-        if not neigh_name:
-            raise ValueError('Neighborhood name cannot be empty')
-        if not 1 <= importance <= 10:
-            raise ValueError('Neighborhood importance coefficient must be between 1 and 10')
-        return v
-
-
-class RoomSuggestion(BaseModel):
-    """
-    Schema for room suggestions in the response.
-    """
-    listing_id: int
-    airbnb_name: str
-    price: float
-    host_id: int
-    neigh_name: str
-    room_type: str
-    score: float
-    attribute_scores: Optional[dict] = None  # Optional: Detailed scores per attribute
-
-
-class SuggestionResponse(BaseModel):
-    """
-    Schema for the overall suggestion response.
-    """
-    suggestions: List[RoomSuggestion]
-***app/routers/suggestions.py
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from typing import List
-from datetime import date
-
-from app import schemas
-from app.db import get_db
-from models.listing import Listing
-from models.neighborhood import Neighborhood
-from models.room import Room
-
-router = APIRouter(
-    prefix="/suggestions",
-    tags=["Suggestions"],
-    responses={404: {"description": "Not found"}},
-)
-
-# explanation of db: Session = Depends(get_db) -> this is a dependency method meaning that it will wait until the get_db
-# method is called and your endpoint has access to the database
-
-# explanation response_model=schemas.SuggestionResponse : this is a response model meaning its a template for your response
-# you can go to app/schemas/suggestions to see it
-
-@router.post("/", response_model=schemas.SuggestionResponse, status_code=status.HTTP_200_OK)
-def get_room_suggestions(preferences: schemas.PreferenceInput, db: Session = Depends(get_db)):
-    """
-    ## Get Room Suggestions Based on User Preferences
-
-    This endpoint receives user preferences along with the importance coefficients for each preference.
-    It returns a list of room suggestions sorted based on how well they match the user's preferences.
-
-    **Request Body Example:**
-
-    ```json
-    {
-        "budget": [250, 8],
-        "check_in": ["2024-05-01", 7],
-        "check_out": ["2024-05-10", 7],
-        "neigh_name": ["Downtown", 10]
-    }
-    ```
-
-    ### **Parameters:**
-
-    - **budget**: A tuple where the first element is the maximum budget and the second is its importance coefficient (1-10).
-    - **check_in**: A tuple where the first element is the desired check-in date and the second is its importance coefficient (1-10).
-    - **check_out**: A tuple where the first element is the desired check-out date and the second is its importance coefficient (1-10).
-    - **neigh_name**: A tuple where the first element is the preferred neighborhood name and the second is its importance coefficient (1-10).
-
-    ### **Response:**
-
-    - **suggestions**: A list of room suggestions sorted based on the calculated scores.
-
-    ### **Implementation Notes:**
-
-    - The ranking method queries the listings and rooms based on user preferences.
-    - It calculates the difference between the ideal and available options for all attributes.
-    - Rooms are sorted and returned to the user based on how well they match the preferences.
-
-    ### **Bonus Features:**
-
-    - The scores for each attribute are provided to give users insight into how each room was ranked.
-    """
-    # Extract preferences and their importance coefficients
-    # todo : use this data to retrive the most relevant listings from your data base
-    user_budget, budget_importance = preferences.budget
-    user_check_in, check_in_importance = preferences.check_in
-    user_check_out, check_out_importance = preferences.check_out
-    user_neigh_name, neigh_importance = preferences.neigh_name
-
-    # Validate dates (already handled by Pydantic)
-    # Here, ensure that check_out is after check_in
-    if user_check_out < user_check_in:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Check-out date cannot be before check-in date."
-        )
-
-    # Fetch listings that are available (assuming 'availability' is a Boolean)
-    available_listings = db.query(Listing).join(Neighborhood).filter(Room.airbnb_id == Listing.airbnb_id).all()
-
-    suggestions = []
-
-    for listing in available_listings:
-        room = db.query(Room).filter(Room.airbnb_id == listing.airbnb_id).first()
-        if not room:
-            continue  # Skip if no corresponding room
-
-        # Calculate scores based on preferences
-        score = 0
-        attribute_scores = {}
-
-        # Budget Score
-        price_diff = abs(user_budget - listing.price)
-        budget_score = (1 / (1 + price_diff)) * budget_importance
-        score += budget_score
-        attribute_scores['budget'] = round(budget_score, 2)
-
-        # Neighborhood Score
-
-
-        # Check-in Score
-        # Since availability dates are not stored, we'll assume all rooms are available
-        # Alternatively, you can implement availability checks if you have the data
-        check_in_score = check_in_importance * 10  # Placeholder
-        score += check_in_score
-        attribute_scores['check_in'] = round(check_in_score, 2)
-
-        # Check-out Score
-        check_out_score = check_out_importance * 10  # Placeholder
-        score += check_out_score
-        attribute_scores['check_out'] = round(check_out_score, 2)
-
-        # Create RoomSuggestion object
-
-
-
-
-    # Sort suggestions based on score in descending order
-
-
-    # return schemas.SuggestionResponse(suggestions=sorted_suggestions)
-    return {'suggestions': "a list of suggestions"}
-
-@router.post("/reserve/{listing_id}", status_code=status.HTTP_200_OK)
-def reserve_room(listing_id: int, db: Session = Depends(get_db)):
-    """
-    ## Reserve a Room
-
-    This endpoint allows users to reserve a room by providing the `listing_id`.
-
-    ### **Parameters:**
-
-    - **listing_id**: The unique identifier of the listing to reserve.
-
-    ### **Response:**
-
-    - **message**: Confirmation message indicating the reservation status.
-
-    ### **Implementation Notes:**
-
-    - This is a placeholder implementation. You should integrate it with your reservation system.
-    - Ensure that the room is available before confirming the reservation.
-    """
-    # Fetch the listing
-    listing = db.query(Listing).filter(Listing.airbnb_id == listing_id).first()
-    if not listing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Listing not found."
-        )
-
-    # Fetch the room
-    room = db.query(Room).filter(Room.airbnb_id == listing_id).first()
-    if not room:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Room not found."
-        )
-
-    # Placeholder for reservation logic
-    # For example, updating availability, creating a reservation record, etc.
-    # Here, we'll just return a success message
-
-    return {"message": f"Room with listing_id {listing_id} has been successfully reserved."}
-***app/routers/__init__.py
-
-***app/routers/__pycache__/suggestions.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xd9 in position 9: invalid continuation byte
-***app/routers/__pycache__/__init__.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xbc in position 8: invalid start byte
-***app/__pycache__/schemas.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xa6 in position 8: invalid start byte
-***app/__pycache__/db.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xcb in position 9: invalid continuation byte
-***app/__pycache__/__init__.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xc2 in position 9: invalid continuation byte
-***models/__init__.py
-from .base import Base
-from .neighborhood import Neighborhood
-from .listing import Listing
-from .room import Room
-***models/listing.py
-from sqlalchemy import Column, Integer, String, ForeignKey
-from sqlalchemy.orm import relationship
-from .base import Base
-
-class Listing(Base):
-    __tablename__ = "listings"
-
-    airbnb_id = Column(Integer, primary_key=True, index=True)
-    airbnb_name = Column(String(255), nullable=False)
-    price = Column(Integer, nullable=False)
-    host_id = Column(Integer, nullable=False)
-    neigh_num = Column(Integer, ForeignKey("neighborhood.neigh_num"), nullable=False)
-
-    neighborhood = relationship("Neighborhood", back_populates="listings")
-    room = relationship("Room", back_populates="listing", uselist=False)
-***models/neighborhood.py
-from sqlalchemy import Column, Integer, String
-from sqlalchemy.orm import relationship
-from .base import Base
-
-class Neighborhood(Base):
-    __tablename__ = "neighborhood"
-
-    neigh_num = Column(Integer, primary_key=True, index=True)
-    neigh_name = Column(String(255), nullable=False)
-    rank = Column(Integer, nullable=False)
-
-    listings = relationship("Listing", back_populates="neighborhood")
-***models/base.py
-from sqlalchemy.ext.declarative import declarative_base
-
-Base = declarative_base()
-***models/room.py
-from sqlalchemy import Column, Integer, String, Boolean, Date, ForeignKey
-from sqlalchemy.orm import relationship
-from .base import Base
-
-class Room(Base):
-    __tablename__ = "room"
-
-    airbnb_id = Column(Integer, ForeignKey("listings.airbnb_id"), primary_key=True, index=True)
-    host_id = Column(Integer, nullable=False)
-    room_type = Column(String(255), nullable=False)
-    availability = Column(Boolean, nullable=False, default=True)
-    check_in = Column(Date, nullable=True)
-    check_out = Column(Date, nullable=True)
-
-    # Relationship to Listing
-    listing = relationship("Listing", back_populates="room")
-***models/__pycache__/neighborhood.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xba in position 8: invalid start byte
-***models/__pycache__/listing.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xa3 in position 8: invalid start byte
-***models/__pycache__/base.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xca in position 9: invalid continuation byte
-***models/__pycache__/room.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xbc in position 8: invalid start byte
-***models/__pycache__/__init__.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xa3 in position 8: invalid start byte
-***__pycache__/main.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xd9 in position 9: invalid continuation byte
-***alembic/script.py.mako
-"""${message}
-
-Revision ID: ${up_revision}
-Revises: ${down_revision | comma,n}
-Create Date: ${create_date}
-
-"""
-from typing import Sequence, Union
-
-from alembic import op
-import sqlalchemy as sa
-${imports if imports else ""}
-
-# revision identifiers, used by Alembic.
-revision: str = ${repr(up_revision)}
-down_revision: Union[str, None] = ${repr(down_revision)}
-branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
-depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
-
-
-def upgrade() -> None:
-    ${upgrades if upgrades else "pass"}
-
-
-def downgrade() -> None:
-    ${downgrades if downgrades else "pass"}
-
-***alembic/env.py
-# alembic/env.py
-
-import sys
-import os
-from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
-from alembic import context
-
-# Add your project directory to sys.path to import modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-# Import your Base from your project
-from app.db import Base, DATABASE_URL  # Ensure DATABASE_URL is imported
-
-# this is the Alembic Config object, which provides access to the values within the .ini file in use.
-config = context.config
-
-# Interpret the config file for Python logging.
-fileConfig(config.config_file_name)
-
-# Set the SQLAlchemy URL from your database configuration
-config.set_main_option('sqlalchemy.url', DATABASE_URL)
-
-# Add your model's MetaData object for 'autogenerate' support
-target_metadata = Base.metadata
-
-def run_migrations_offline():
-    """Run migrations in 'offline' mode."""
-
-    url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-    )
-
-    with context.begin_transaction():
-        context.run_migrations()
-
-
-def run_migrations_online():
-    """Run migrations in 'online' mode."""
-
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
-        prefix='sqlalchemy.',
-        poolclass=pool.NullPool,
-    )
-
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata
-        )
-
-        with context.begin_transaction():
-            context.run_migrations()
-
-
-if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
-***alembic/README
-Generic single-database configuration.
-***alembic/versions/c3765e854408_set_default_for_room_availablity.py
-"""set default for room availablity
-
-Revision ID: c3765e854408
-Revises: 31a5dae9a143
-Create Date: 2024-12-27 20:26:15.369508
-
-"""
-from typing import Sequence, Union
-
-from alembic import op
-import sqlalchemy as sa
-
-
-# revision identifiers, used by Alembic.
-revision: str = 'c3765e854408'
-down_revision: Union[str, None] = '31a5dae9a143'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
-
-
-def upgrade() -> None:
-    # ### commands auto generated by Alembic - please adjust! ###
-    pass
-    # ### end Alembic commands ###
-
-
-def downgrade() -> None:
-    # ### commands auto generated by Alembic - please adjust! ###
-    pass
-    # ### end Alembic commands ###
-
-***alembic/versions/31a5dae9a143_initial_migration.py
-"""Initial migration
-
-Revision ID: 31a5dae9a143
-Revises: 
-Create Date: 2024-12-27 19:13:31.646140
-
-"""
-from typing import Sequence, Union
-
-from alembic import op
-import sqlalchemy as sa
-
-
-# revision identifiers, used by Alembic.
-revision: str = '31a5dae9a143'
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
-
-
-def upgrade() -> None:
-    # ### commands auto generated by Alembic - please adjust! ###
-    op.create_table('neighborhood',
-    sa.Column('neigh_num', sa.Integer(), nullable=False),
-    sa.Column('neigh_name', sa.String(length=255), nullable=False),
-    sa.Column('rank', sa.Integer(), nullable=False),
-    sa.PrimaryKeyConstraint('neigh_num')
-    )
-    op.create_index(op.f('ix_neighborhood_neigh_num'), 'neighborhood', ['neigh_num'], unique=False)
-    op.create_table('listings',
-    sa.Column('airbnb_id', sa.Integer(), nullable=False),
-    sa.Column('airbnb_name', sa.String(length=255), nullable=False),
-    sa.Column('price', sa.Integer(), nullable=False),
-    sa.Column('host_id', sa.Integer(), nullable=False),
-    sa.Column('neigh_num', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['neigh_num'], ['neighborhood.neigh_num'], ),
-    sa.PrimaryKeyConstraint('airbnb_id')
-    )
-    op.create_index(op.f('ix_listings_airbnb_id'), 'listings', ['airbnb_id'], unique=False)
-    op.create_table('room',
-    sa.Column('airbnb_id', sa.Integer(), nullable=False),
-    sa.Column('host_id', sa.Integer(), nullable=False),
-    sa.Column('room_type', sa.String(length=255), nullable=False),
-    sa.Column('availability', sa.Boolean(), nullable=False),
-    sa.Column('check_in', sa.Date(), nullable=True),
-    sa.Column('check_out', sa.Date(), nullable=True),
-    sa.ForeignKeyConstraint(['airbnb_id'], ['listings.airbnb_id'], ),
-    sa.PrimaryKeyConstraint('airbnb_id')
-    )
-    op.create_index(op.f('ix_room_airbnb_id'), 'room', ['airbnb_id'], unique=False)
-    # ### end Alembic commands ###
-
-
-def downgrade() -> None:
-    # ### commands auto generated by Alembic - please adjust! ###
-    op.drop_index(op.f('ix_room_airbnb_id'), table_name='room')
-    op.drop_table('room')
-    op.drop_index(op.f('ix_listings_airbnb_id'), table_name='listings')
-    op.drop_table('listings')
-    op.drop_index(op.f('ix_neighborhood_neigh_num'), table_name='neighborhood')
-    op.drop_table('neighborhood')
-    # ### end Alembic commands ###
-
-***alembic/versions/__pycache__/31a5dae9a143_initial_migration.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xcb in position 9: invalid continuation byte
-***alembic/versions/__pycache__/84ff5f29f4bd_initial_migration.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xa7 in position 8: invalid start byte
-***alembic/versions/__pycache__/c3765e854408_set_default_for_room_availablity.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xdc in position 9: invalid continuation byte
-***alembic/__pycache__/env.cpython-310.pyc
-Could not read file: 'utf-8' codec can't decode byte 0xef in position 8: invalid continuation byte
